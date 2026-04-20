@@ -255,7 +255,11 @@ def build_session_context_prompt(
             "with [sender name]. Multiple users may participate."
         )
     elif context.source.user_name:
-        lines.append(f"**User:** {context.source.user_name}")
+        uid = context.source.user_id or ""
+        if uid and redact_pii:
+            uid = _hash_sender_id(uid)
+        uid_info = f" (open_id: {uid})" if uid else ""
+        lines.append(f"**User:** {context.source.user_name}{uid_info}")
     elif context.source.user_id:
         uid = context.source.user_id
         if redact_pii:

@@ -3675,6 +3675,9 @@ class GatewayRunner:
         if canonical == "insights":
             return await self._handle_insights_command(event)
 
+        if canonical == "pull":
+            return await self._handle_pull_command(event)
+
         if canonical == "reload-mcp":
             return await self._handle_reload_mcp_command(event)
 
@@ -3904,8 +3907,11 @@ class GatewayRunner:
             group_sessions_per_user=getattr(self.config, "group_sessions_per_user", True),
             thread_sessions_per_user=getattr(self.config, "thread_sessions_per_user", False),
         )
-        if _is_shared_multi_user and source.user_name:
-            message_text = f"[{source.user_name}] {message_text}"
+        _sender_display = source.user_name or source.user_id or ""
+        if _is_shared_multi_user and _sender_display:
+            _sender_open_id = source.user_id or ""
+            _sender_suffix = f"|{_sender_open_id}" if _sender_open_id else ""
+            message_text = f"[{_sender_display}{_sender_suffix}] {message_text}"
 
         if event.media_urls:
             image_paths = []
@@ -7551,6 +7557,35 @@ class GatewayRunner:
             logger.error("Insights command error: %s", e, exc_info=True)
             return f"Error generating insights: {e}"
 
+    async def _handle_pull_command(self, event: MessageEvent) -> str:
+        """Handle /pull — git pull the knowledge base repo (external_dirs[0] parent)."""
+        import asyncio
+        import subprocess
+        try:
+            from agent.skill_utils import get_external_skills_dirs
+            dirs = get_external_skills_dirs()
+        except Exception as e:
+            return f"✗ Failed to resolve skills dirs: {e}"
+        if not dirs:
+            return "✗ No external skills dir configured (skills.external_dirs)."
+        repo_dir = dirs[0].parent
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git", "pull",
+                cwd=str(repo_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+            output = (stdout + stderr).decode().strip()
+            if proc.returncode != 0:
+                return f"✗ git pull failed:\n{output}"
+            return f"✓ {output or 'Already up to date.'}"
+        except asyncio.TimeoutError:
+            return "✗ git pull timed out (60s)"
+        except Exception as e:
+            return f"✗ git pull error: {e}"
+
     async def _handle_reload_mcp_command(self, event: MessageEvent) -> str:
         """Handle /reload-mcp command -- disconnect and reconnect all MCP servers."""
         loop = asyncio.get_running_loop()
@@ -10047,6 +10082,11 @@ class GatewayRunner:
                 # false positives from MagicMock auto-attribute creation in tests.
                 if getattr(type(_status_adapter), "send_exec_approval", None) is not None:
                     try:
+                        _approval_extra = {}
+                        if source.platform == Platform.FEISHU:
+                            _fuid_match = re.search(r'--feishu-user-id[=\s]+(\S+)', cmd)
+                            if _fuid_match:
+                                _approval_extra["user_id"] = _fuid_match.group(1)
                         _approval_result = asyncio.run_coroutine_threadsafe(
                             _status_adapter.send_exec_approval(
                                 chat_id=_status_chat_id,
@@ -10054,6 +10094,7 @@ class GatewayRunner:
                                 session_key=_approval_session_key,
                                 description=desc,
                                 metadata=_status_thread_metadata,
+                                **_approval_extra,
                             ),
                             _loop_for_step,
                         ).result(timeout=15)

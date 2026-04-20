@@ -143,6 +143,10 @@ DANGEROUS_PATTERNS = [
     # a script is first made executable then immediately run. The script
     # content may contain dangerous commands that individual patterns miss.
     (r'\bchmod\s+\+x\b.*[;&|]+\s*\./', "chmod +x followed by immediate execution"),
+    # Business-critical external system mutations
+    (r'\barchery\b.*\bticket\b.*\bapprove\b', "archery ticket approve (executes SQL against production database)"),
+    (r'\barchery\b.*\bticket\b.*\bexecute\b', "archery ticket execute (executes SQL against production database)"),
+    (r'\bxxljob\b.*\btrigger\b', "xxljob trigger (fires async job in production)"),
 ]
 
 
@@ -719,6 +723,48 @@ def _format_tirith_description(tirith_result: dict) -> str:
     return "Security scan — " + "; ".join(parts)
 
 
+_PIPE_TO_SCRIPT_RE = re.compile(
+    r'\bpython[23]?\s+'       # left side: python3 <script>
+    r'(?!-[ec]\s)'            # NOT -e/-c (inline code execution)
+    r'["\']?\$?\w[^\|]*'      # a script path (starts with word char, $var, or quote)
+    r'\|\s*'                   # pipe
+    r'python[23]?\s+'         # right side: python3 <script>
+    r'(?!-[ec]\s)'            # NOT -e/-c
+    r'["\']?\$?\w',           # a script path
+    re.IGNORECASE,
+)
+
+
+def _filter_tirith_result(tirith_result: dict, command: str) -> dict:
+    """Drop false-positive tirith findings for safe pipe-to-interpreter patterns.
+
+    python3 script_a.py | python3 script_b.py is flagged as pipe-to-interpreter
+    but is safe when both sides run named script files (not inline code).
+    Genuinely dangerous patterns (curl|python3, echo|python3 -c) are kept.
+    """
+    findings = tirith_result.get("findings") or []
+    if not findings:
+        return tirith_result
+
+    if not _PIPE_TO_SCRIPT_RE.search(command):
+        return tirith_result
+
+    filtered = []
+    for f in findings:
+        text = " ".join([
+            f.get("rule_id", ""),
+            f.get("title", ""),
+            f.get("description", ""),
+        ]).lower()
+        if "pipe" in text and "interpreter" in text:
+            continue
+        filtered.append(f)
+
+    if not filtered:
+        return {"action": "allow", "findings": [], "summary": ""}
+    return {**tirith_result, "findings": filtered}
+
+
 def check_all_command_guards(command: str, env_type: str,
                              approval_callback=None) -> dict:
     """Run all pre-exec security checks and return a single approval decision.
@@ -773,6 +819,9 @@ def check_all_command_guards(command: str, env_type: str,
         tirith_result = check_command_security(command)
     except ImportError:
         pass  # tirith module not installed — allow
+
+    if tirith_result["action"] in ("block", "warn"):
+        tirith_result = _filter_tirith_result(tirith_result, command)
 
     # Dangerous command check (detection only, no approval)
     is_dangerous, pattern_key, description = detect_dangerous_command(command)

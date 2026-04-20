@@ -98,9 +98,28 @@ def _security_scan_skill(skill_dir: Path) -> Optional[str]:
 import yaml
 
 
-# All skills live in ~/.hermes/skills/ (single source of truth)
 HERMES_HOME = get_hermes_home()
-SKILLS_DIR = HERMES_HOME / "skills"
+
+
+def _get_skills_write_dir() -> Path:
+    """Return the directory where new skills are created.
+
+    If ``skills.external_dirs`` is configured, the first valid entry is used so
+    that agent-created skills land in the user's external repo rather than the
+    default ~/.hermes/skills/.  Falls back to ~/.hermes/skills/ when no external
+    dirs are configured.
+    """
+    try:
+        from agent.skill_utils import get_external_skills_dirs
+        ext_dirs = get_external_skills_dirs()
+        if ext_dirs:
+            return ext_dirs[0]
+    except Exception:
+        pass
+    return HERMES_HOME / "skills"
+
+
+SKILLS_DIR = _get_skills_write_dir()
 
 MAX_NAME_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 1024

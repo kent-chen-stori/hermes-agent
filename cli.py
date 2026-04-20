@@ -6082,6 +6082,8 @@ class HermesCLI:
             self._handle_paste_command()
         elif canonical == "image":
             self._handle_image_command(cmd_original)
+        elif canonical == "pull":
+            self._handle_pull_command()
         elif canonical == "reload":
             from hermes_cli.config import reload_env
             count = reload_env()
@@ -6588,6 +6590,35 @@ class HermesCLI:
             return True
         except Exception:
             return False
+
+    def _handle_pull_command(self):
+        """Handle /pull — git pull the knowledge base repo."""
+        import subprocess
+        from agent.skill_utils import get_external_skills_dirs
+        dirs = get_external_skills_dirs()
+        if not dirs:
+            print("  No external skills dir configured (skills.external_dirs).")
+            return
+        # The knowledge repo is the parent of the first external skills dir
+        repo_dir = dirs[0].parent
+        print(f"  Pulling {repo_dir} ...")
+        try:
+            result = subprocess.run(
+                ["git", "pull"],
+                cwd=str(repo_dir),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            output = (result.stdout + result.stderr).strip()
+            if output:
+                print(f"  {output}")
+            if result.returncode != 0:
+                print(f"  [red]git pull failed (exit {result.returncode})[/red]")
+        except subprocess.TimeoutExpired:
+            print("  git pull timed out (60s)")
+        except Exception as e:
+            print(f"  git pull error: {e}")
 
     def _handle_browser_command(self, cmd: str):
         """Handle /browser connect|disconnect|status — manage live Chrome CDP connection."""
