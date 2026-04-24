@@ -10098,12 +10098,11 @@ class GatewayRunner:
                             ),
                             _loop_for_step,
                         ).result(timeout=15)
-                        if _approval_result.success:
-                            return
-                        logger.warning(
-                            "Button-based approval failed (send returned error), falling back to text: %s",
-                            _approval_result.error,
-                        )
+                        if hasattr(_approval_result, "success") and not _approval_result.success:
+                            raise RuntimeError(
+                                f"Approval card send failed: {getattr(_approval_result, 'error', 'unknown')}"
+                            )
+                        return
                     except Exception as _e:
                         logger.warning(
                             "Button-based approval failed, falling back to text: %s", _e

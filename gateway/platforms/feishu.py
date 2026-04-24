@@ -4107,6 +4107,10 @@ class FeishuAdapter(BasePlatformAdapter):
     ) -> Any:
         last_error: Optional[Exception] = None
         active_reply_to = reply_to
+        # _send_raw_message may derive a reply target from metadata["thread_id"]
+        # even when reply_to is None.  Track this so the fallback logic below
+        # can detect failures from metadata-derived replies too.
+        metadata_reply_to = (metadata or {}).get("thread_id") if not reply_to else None
         for attempt in range(_FEISHU_SEND_ATTEMPTS):
             try:
                 response = await self._send_raw_message(
@@ -4118,17 +4122,19 @@ class FeishuAdapter(BasePlatformAdapter):
                 )
                 # If replying to a message failed because it was withdrawn or not found,
                 # fall back to posting a new message directly to the chat.
-                if active_reply_to and not self._response_succeeded(response):
+                _actually_replied = active_reply_to or metadata_reply_to
+                if _actually_replied and not self._response_succeeded(response):
                     code = getattr(response, "code", None)
                     if code in _FEISHU_REPLY_FALLBACK_CODES:
                         logger.warning(
                             "[Feishu] Reply to %s failed (code %s — message withdrawn/missing); "
                             "falling back to new message in chat %s",
-                            active_reply_to,
+                            _actually_replied,
                             code,
                             chat_id,
                         )
                         active_reply_to = None
+                        metadata_reply_to = None
                         # 清掉 thread_id，避免 _send_raw_message 再次从
                         # metadata 派生 reply 目标，让消息真正降级到群消息
                         fallback_metadata = {k: v for k, v in (metadata or {}).items() if k != "thread_id"} or None
