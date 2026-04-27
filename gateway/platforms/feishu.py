@@ -1770,7 +1770,7 @@ class FeishuAdapter(BasePlatformAdapter):
                     "value": {"hermes_action": action_name, "approval_id": approval_id},
                 }
 
-            mention_prefix = f"<at id={user_id}></at>\n" if user_id else ""
+            mention_prefix = f'<at id="{user_id}"></at>\n' if user_id else ""
             card = {
                 "config": {"wide_screen_mode": True},
                 "header": {
