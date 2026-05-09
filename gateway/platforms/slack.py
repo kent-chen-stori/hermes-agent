@@ -1101,15 +1101,19 @@ class SlackAdapter(BasePlatformAdapter):
             elif not self._slack_require_mention():
                 pass  # Mention requirement disabled globally for Slack
             elif not is_mentioned:
+                thread_sticky = self._slack_thread_sticky()
                 reply_to_bot_thread = (
-                    is_thread_reply and event_thread_ts in self._bot_message_ts
+                    thread_sticky
+                    and is_thread_reply and event_thread_ts in self._bot_message_ts
                 )
                 in_mentioned_thread = (
-                    event_thread_ts is not None
+                    thread_sticky
+                    and event_thread_ts is not None
                     and event_thread_ts in self._mentioned_threads
                 )
                 has_session = (
-                    is_thread_reply
+                    thread_sticky
+                    and is_thread_reply
                     and self._has_active_session_for_thread(
                         channel_id=channel_id,
                         thread_ts=event_thread_ts,
@@ -1731,6 +1735,20 @@ class SlackAdapter(BasePlatformAdapter):
                 return configured.lower() not in ("false", "0", "no", "off")
             return bool(configured)
         return os.getenv("SLACK_REQUIRE_MENTION", "true").lower() not in ("false", "0", "no", "off")
+
+    def _slack_thread_sticky(self) -> bool:
+        """Return whether a previous @mention in a thread makes the bot respond
+        to all subsequent messages in that thread without re-mentioning.
+
+        Defaults to False — users must @mention the bot each time.
+        Set slack.thread_sticky: true in config or SLACK_THREAD_STICKY=true to enable.
+        """
+        configured = self.config.extra.get("thread_sticky")
+        if configured is not None:
+            if isinstance(configured, str):
+                return configured.lower() in ("true", "1", "yes", "on")
+            return bool(configured)
+        return os.getenv("SLACK_THREAD_STICKY", "false").lower() in ("true", "1", "yes", "on")
 
     def _slack_free_response_channels(self) -> set:
         """Return channel IDs where no @mention is required."""

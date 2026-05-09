@@ -149,6 +149,15 @@ DANGEROUS_PATTERNS = [
     (r'\bxxljob\b.*\btrigger\b', "xxljob trigger (fires async job in production)"),
 ]
 
+# Commands that are hard-blocked on Slack with no approval option.
+# These involve irreversible production mutations that must not be
+# triggered from a chat interface without an out-of-band review.
+SLACK_BLOCKED_PATTERNS: set[str] = {
+    "archery ticket approve (executes SQL against production database)",
+    "archery ticket execute (executes SQL against production database)",
+    "xxljob trigger (fires async job in production)",
+}
+
 
 def _legacy_pattern_key(pattern: str) -> str:
     """Reproduce the old regex-derived approval key for backwards compatibility."""
@@ -777,6 +786,18 @@ def check_all_command_guards(command: str, env_type: str,
     # Skip containers for both checks
     if env_type in ("docker", "singularity", "modal", "daytona"):
         return {"approved": True, "message": None}
+
+    # Slack hard-block: certain production-mutation commands are never allowed
+    # from Slack regardless of YOLO mode or approval settings.
+    session_key = get_current_session_key(default="")
+    session_platform = session_key.split(":")[2] if session_key.count(":") >= 2 else ""
+    if session_platform == "slack":
+        is_dangerous, _pk, description = detect_dangerous_command(command)
+        if is_dangerous and description in SLACK_BLOCKED_PATTERNS:
+            return {
+                "approved": False,
+                "message": f"BLOCKED: '{description}' is not allowed from Slack.",
+            }
 
     # --yolo or approvals.mode=off: bypass all approval prompts.
     # Gateway /yolo is session-scoped; CLI --yolo remains process-scoped.

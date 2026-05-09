@@ -1249,7 +1249,7 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
     ws_client_module.loop = loop
     adapter._ws_thread_loop = loop
 
-    original_connect = ws_client_module.websockets.connect
+    original_ws_module = ws_client_module.websockets
     original_configure = getattr(ws_client, "_configure", None)
 
     def _apply_runtime_ws_overrides() -> None:
@@ -1264,15 +1264,22 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
         except Exception:
             logger.debug("[Feishu] Failed to apply websocket runtime overrides", exc_info=True)
 
-    async def _connect_with_overrides(*args: Any, **kwargs: Any) -> Any:
-        if "ping_interval" not in kwargs:
-            if adapter._ws_disable_native_ping:
-                kwargs["ping_interval"] = None  # disable websockets library's TCP-level ping
-            elif adapter._ws_ping_interval is not None:
-                kwargs["ping_interval"] = adapter._ws_ping_interval
-        if adapter._ws_ping_timeout is not None and "ping_timeout" not in kwargs:
-            kwargs["ping_timeout"] = adapter._ws_ping_timeout
-        return await original_connect(*args, **kwargs)
+    class _FeishuWebsocketsProxy:
+        # Replaces ws_client_module.websockets so only lark SDK connections get feishu
+        # ping settings. The global websockets module is untouched — other platforms
+        # (e.g. Slack) that imported websockets directly are unaffected.
+        def __getattr__(self, name: str) -> Any:
+            return getattr(original_ws_module, name)
+
+        async def connect(self, *args: Any, **kwargs: Any) -> Any:
+            if "ping_interval" not in kwargs:
+                if adapter._ws_disable_native_ping:
+                    kwargs["ping_interval"] = None
+                elif adapter._ws_ping_interval is not None:
+                    kwargs["ping_interval"] = adapter._ws_ping_interval
+            if adapter._ws_ping_timeout is not None and "ping_timeout" not in kwargs:
+                kwargs["ping_timeout"] = adapter._ws_ping_timeout
+            return await original_ws_module.connect(*args, **kwargs)
 
     def _configure_with_overrides(conf: Any) -> Any:
         if original_configure is None:
@@ -1281,7 +1288,7 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
         _apply_runtime_ws_overrides()
         return result
 
-    ws_client_module.websockets.connect = _connect_with_overrides
+    ws_client_module.websockets = _FeishuWebsocketsProxy()
     if original_configure is not None:
         setattr(ws_client, "_configure", _configure_with_overrides)
     _apply_runtime_ws_overrides()
@@ -1290,7 +1297,7 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
     except Exception:
         pass
     finally:
-        ws_client_module.websockets.connect = original_connect
+        ws_client_module.websockets = original_ws_module
         if original_configure is not None:
             setattr(ws_client, "_configure", original_configure)
         pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
