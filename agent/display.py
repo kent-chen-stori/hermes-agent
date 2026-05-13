@@ -167,6 +167,21 @@ def _oneline(text: str) -> str:
     return " ".join(text.split())
 
 
+def _shorten_path(path: str) -> str:
+    """Shorten an absolute path to its last 2 components."""
+    parts = [p for p in path.split("/") if p]
+    keep = min(2, len(parts))
+    return "/".join(parts[-keep:]) if keep > 0 else path
+
+
+def _shorten_abs_paths(text: str) -> str:
+    """Replace absolute paths embedded in a string with their last 2 components."""
+    import re
+    def _sub(m: "re.Match") -> str:
+        return _shorten_path(m.group(0))
+    return re.sub(r'/(?:[^\s"\'`|&;<>()\[\]{}]+/)+[^\s"\'`|&;<>()\[\]{}]+', _sub, text)
+
+
 def build_tool_preview(tool_name: str, args: dict, max_len: int | None = None) -> str | None:
     """Build a short preview of a tool call's primary argument for display.
 
@@ -271,6 +286,10 @@ def build_tool_preview(tool_name: str, args: dict, max_len: int | None = None) -
     preview = _oneline(str(value))
     if not preview:
         return None
+    if key == "path" and "/" in preview:
+        preview = _shorten_path(preview)
+    elif key == "command":
+        preview = _shorten_abs_paths(preview)
     if max_len > 0 and len(preview) > max_len:
         preview = preview[:max_len - 3] + "..."
     return preview
@@ -988,9 +1007,7 @@ def get_cute_tool_message(
         }
         return _wrap(f"┊ 🧪 rl        {rl.get(tool_name, tool_name.replace('rl_', ''))}  {dur}")
     if tool_name == "execute_code":
-        code = args.get("code", "")
-        first_line = code.strip().split("\n")[0] if code.strip() else ""
-        return _wrap(f"┊ 🐍 exec      {_trunc(first_line, 35)}  {dur}")
+        return _wrap(f"┊ 🐍 exec      {dur}")
     if tool_name == "delegate_task":
         tasks = args.get("tasks")
         if tasks and isinstance(tasks, list):
