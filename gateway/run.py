@@ -14301,6 +14301,8 @@ class GatewayRunner:
                             _fuid_match = re.search(r'--feishu-user-id[=\s]+(\S+)', cmd)
                             if _fuid_match:
                                 _approval_extra["user_id"] = _fuid_match.group(1)
+                            elif getattr(source, "user_id", None):
+                                _approval_extra["user_id"] = source.user_id
                         _approval_result = asyncio.run_coroutine_threadsafe(
                             _status_adapter.send_exec_approval(
                                 chat_id=_status_chat_id,
