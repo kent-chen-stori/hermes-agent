@@ -2455,6 +2455,19 @@ class FeishuAdapter(BasePlatformAdapter):
         open_id = str(getattr(operator, "open_id", "") or "")
         user_name = self._get_cached_sender_name(open_id) or open_id
 
+        # 权限校验：若 approval 绑定了特定 user_id（命令中带 --feishu-user-id，
+        # 或 source.user_id 兜底），仅该用户可点。其他人点击静默拒绝，state 保留
+        # 等待正确的用户。
+        state = self._approval_state.get(approval_id)
+        if state is not None:
+            required_user = state.get("user_id") or ""
+            if required_user and open_id != required_user:
+                logger.info(
+                    "[Feishu] Approval %s rejected: clicker %s != required %s",
+                    approval_id, open_id, required_user,
+                )
+                return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
+
         self._submit_on_loop(loop, self._resolve_approval(approval_id, choice, user_name))
 
         if P2CardActionTriggerResponse is None:

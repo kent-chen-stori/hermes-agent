@@ -324,6 +324,9 @@ DANGEROUS_PATTERNS = [
     (r'\barchery\b.*\bticket\b.*\bapprove\b', "archery ticket approve (executes SQL against production database)"),
     (r'\barchery\b.*\bticket\b.*\bexecute\b', "archery ticket execute (executes SQL against production database)"),
     (r'\bxxljob\b.*\btrigger\b', "xxljob trigger (fires async job in production)"),
+    (r'\bfundcheck\s+rule-new\b', "fundcheck rule-new (creates production fund check rule)"),
+    (r'\bfundcheck\s+rule-update\b', "fundcheck rule-update (modifies production fund check rule)"),
+    (r'\bfundcheck\s+rule-switch-status\b', "fundcheck rule-switch-status (toggles production fund check rule status)"),
 ]
 
 # Commands that are hard-blocked on Slack with no approval option.
@@ -333,6 +336,9 @@ SLACK_BLOCKED_PATTERNS: set[str] = {
     "archery ticket approve (executes SQL against production database)",
     "archery ticket execute (executes SQL against production database)",
     "xxljob trigger (fires async job in production)",
+    "fundcheck rule-new (creates production fund check rule)",
+    "fundcheck rule-update (modifies production fund check rule)",
+    "fundcheck rule-switch-status (toggles production fund check rule status)",
 }
 
 
