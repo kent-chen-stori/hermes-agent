@@ -1878,6 +1878,7 @@ class FeishuAdapter(BasePlatformAdapter):
                     "message_id": result.message_id or "",
                     "chat_id": chat_id,
                     "user_id": user_id or "",
+                    "command": cmd_preview,
                 }
             return result
         except Exception as exc:
@@ -1885,22 +1886,21 @@ class FeishuAdapter(BasePlatformAdapter):
             return SendResult(success=False, error=str(exc))
 
     @staticmethod
-    def _build_resolved_approval_card(*, choice: str, user_name: str) -> Dict[str, Any]:
+    def _build_resolved_approval_card(*, choice: str, user_name: str, command: str = "") -> Dict[str, Any]:
         """Build raw card JSON for a resolved approval action."""
         icon = "❌" if choice == "deny" else "✅"
         label = _APPROVAL_LABEL_MAP.get(choice, "Resolved")
+        elements: list[dict] = []
+        if command:
+            elements.append({"tag": "markdown", "content": f"```\n{command}\n```"})
+        elements.append({"tag": "markdown", "content": f"{icon} **{label}** by {user_name}"})
         return {
             "config": {"wide_screen_mode": True},
             "header": {
                 "title": {"content": f"{icon} {label}", "tag": "plain_text"},
                 "template": "red" if choice == "deny" else "green",
             },
-            "elements": [
-                {
-                    "tag": "markdown",
-                    "content": f"{icon} **{label}** by {user_name}",
-                },
-            ],
+            "elements": elements,
         }
 
     async def _add_approval_reaction(self, message_id: str, emoji_type: str) -> None:
@@ -2476,7 +2476,10 @@ class FeishuAdapter(BasePlatformAdapter):
         if CallBackCard is not None:
             card = CallBackCard()
             card.type = "raw"
-            card.data = self._build_resolved_approval_card(choice=choice, user_name=user_name)
+            card.data = self._build_resolved_approval_card(
+                choice=choice, user_name=user_name,
+                command=(state or {}).get("command", ""),
+            )
             response.card = card
         return response
 
