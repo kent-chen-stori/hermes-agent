@@ -118,6 +118,13 @@ def skill_matches_platform(frontmatter: Dict[str, Any]) -> bool:
 # ── Disabled skills ───────────────────────────────────────────────────────
 
 
+class _AllExceptSet(set):
+    """A set whose ``in`` operator returns True for everything *not* in the allowlist."""
+
+    def __contains__(self, item):
+        return not super().__contains__(item)
+
+
 def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
     """Read disabled skill names from config.yaml.
 
@@ -126,6 +133,10 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
             *None*, resolves from ``HERMES_PLATFORM`` or
             ``HERMES_SESSION_PLATFORM`` env vars.  Falls back to the
             global disabled list when no platform is determined.
+
+    When ``skills.platform_enabled.<platform>`` is set (a whitelist),
+    every skill NOT in that list is treated as disabled.  The whitelist
+    takes precedence over ``platform_disabled`` for the same platform.
 
     Reads the config file directly (no CLI config imports) to stay
     lightweight.
@@ -152,6 +163,11 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
         or get_session_env("HERMES_SESSION_PLATFORM")
     )
     if resolved_platform:
+        platform_enabled = (skills_cfg.get("platform_enabled") or {}).get(
+            resolved_platform
+        )
+        if platform_enabled is not None:
+            return _AllExceptSet(_normalize_string_set(platform_enabled))
         platform_disabled = (skills_cfg.get("platform_disabled") or {}).get(
             resolved_platform
         )

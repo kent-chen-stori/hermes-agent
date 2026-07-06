@@ -531,6 +531,9 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
     1. Explicit ``platform`` argument
     2. ``HERMES_PLATFORM`` environment variable
     3. ``HERMES_SESSION_PLATFORM`` from gateway session context
+
+    When ``skills.platform_enabled.<platform>`` is set (whitelist),
+    the skill is disabled unless it appears in that list.
     """
     try:
         from hermes_cli.config import load_config
@@ -538,6 +541,9 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
         skills_cfg = config.get("skills", {})
         resolved_platform = platform or os.getenv("HERMES_PLATFORM") or _get_session_platform()
         if resolved_platform:
+            platform_enabled = cfg_get(skills_cfg, "platform_enabled", resolved_platform)
+            if platform_enabled is not None:
+                return name not in platform_enabled
             platform_disabled = cfg_get(skills_cfg, "platform_disabled", resolved_platform)
             if platform_disabled is not None:
                 return name in platform_disabled
