@@ -6669,6 +6669,17 @@ class AIAgent:
         runtime_key = getattr(entry, "runtime_api_key", None) or getattr(entry, "access_token", "")
         runtime_base = getattr(entry, "runtime_base_url", None) or getattr(entry, "base_url", None) or self.base_url
 
+        # Auxiliary clients (title generation, compression, session search, …)
+        # are cached per provider config and never observe pool rotation —
+        # without eviction they keep calling the account that just got
+        # rate-limited/exhausted. The pool state is already persisted, so the
+        # rebuilt clients re-resolve to the rotated credential.
+        try:
+            from agent.auxiliary_client import evict_all_cached_clients
+            evict_all_cached_clients()
+        except Exception:
+            logger.debug("Auxiliary client cache eviction after credential rotation failed", exc_info=True)
+
         if self.api_mode == "anthropic_messages":
             from agent.anthropic_adapter import build_anthropic_client, _is_oauth_token
 

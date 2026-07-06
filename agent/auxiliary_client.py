@@ -3174,6 +3174,19 @@ def shutdown_cached_clients() -> None:
         _client_cache.clear()
 
 
+def evict_all_cached_clients() -> None:
+    """Drop every cached auxiliary client so the next call re-resolves credentials.
+
+    Called by the main agent after credential-pool rotation: cached clients
+    are bound to the previous (rate-limited / exhausted) account's token, and
+    per-provider eviction via ``_evict_cached_clients`` cannot match the
+    ``"auto"``-keyed entries that tasks like title generation use.  Rebuilding
+    a client is a cheap local construction, so clearing the whole cache is the
+    simplest way to guarantee no side task keeps calling the old account.
+    """
+    shutdown_cached_clients()
+
+
 def cleanup_stale_async_clients() -> None:
     """Force-close cached async clients whose event loop is closed.
 
