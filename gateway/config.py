@@ -1395,6 +1395,9 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
         api_server_model = os.getenv("API_SERVER_MODEL", "")
         if api_server_model:
             config.platforms[Platform.API_SERVER].extra["model"] = api_server_model
+        api_server_provider = os.getenv("API_SERVER_PROVIDER", "")
+        if api_server_provider:
+            config.platforms[Platform.API_SERVER].extra["provider"] = api_server_provider
 
     # Webhook platform
     webhook_enabled = os.getenv("WEBHOOK_ENABLED", "").lower() in ("true", "1", "yes")

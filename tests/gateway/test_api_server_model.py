@@ -53,3 +53,39 @@ def test_model_name_alone_does_not_change_backend_model():
     """model_name only changes the advertised /v1/models id, not the backend."""
     mock_agent_cls = _create_agent_with({"model_name": "my-agent"})
     assert mock_agent_cls.call_args.kwargs.get("model") == "global/model"
+
+
+@patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
+def test_provider_override_resolves_credentials():
+    """extra.provider swaps the runtime credentials, not just the model string."""
+    from gateway.platforms.api_server import APIServerAdapter
+    from gateway.config import PlatformConfig
+
+    adapter = APIServerAdapter(PlatformConfig(extra={
+        "model": "deepseek-v4-flash", "provider": "deepseek",
+    }))
+
+    with patch("gateway.run._resolve_runtime_agent_kwargs") as mock_kwargs, \
+         patch("gateway.run._resolve_gateway_model") as mock_model, \
+         patch("gateway.run._load_gateway_config") as mock_config, \
+         patch("hermes_cli.runtime_provider.resolve_runtime_provider") as mock_resolve, \
+         patch("run_agent.AIAgent") as mock_agent_cls:
+        mock_model.return_value = "global/model"
+        mock_config.return_value = {}
+        mock_resolve.return_value = {
+            "api_key": "ds-key", "base_url": "https://api.deepseek.com/v1",
+            "provider": "deepseek", "api_mode": "chat_completions",
+        }
+        mock_agent_cls.return_value = MagicMock()
+
+        adapter._create_agent()
+
+    mock_resolve.assert_called_once_with(
+        requested="deepseek", target_model="deepseek-v4-flash",
+    )
+    mock_kwargs.assert_not_called()
+    call_kwargs = mock_agent_cls.call_args.kwargs
+    assert call_kwargs.get("model") == "deepseek-v4-flash"
+    assert call_kwargs.get("provider") == "deepseek"
+    assert call_kwargs.get("api_key") == "ds-key"
+    assert call_kwargs.get("base_url") == "https://api.deepseek.com/v1"
