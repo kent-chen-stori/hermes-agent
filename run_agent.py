@@ -8939,6 +8939,12 @@ class AIAgent:
                 "promptId": str(uuid.uuid4()),
             }
 
+        # Strip image parts for non-vision models (no-op when vision-capable).
+        # Must run before BOTH the profile and legacy paths — registered
+        # providers (e.g. deepseek) otherwise send raw image_url parts to
+        # APIs that reject them with 400s.
+        api_messages = self._prepare_messages_for_non_vision_model(api_messages)
+
         # ── Provider profile path (registered providers) ───────────────────
         # Profiles handle per-provider quirks via hooks. When a profile is
         # found, delegate fully; otherwise fall through to the legacy flag path.
@@ -8981,12 +8987,9 @@ class AIAgent:
         if _ephemeral_out is not None:
             self._ephemeral_max_output_tokens = None
 
-        # Strip image parts for non-vision models (no-op when vision-capable).
-        _msgs_for_chat = self._prepare_messages_for_non_vision_model(api_messages)
-
         return _ct.build_kwargs(
             model=self.model,
-            messages=_msgs_for_chat,
+            messages=api_messages,
             tools=self.tools,
             base_url=self.base_url,
             timeout=self._resolved_api_call_timeout(),

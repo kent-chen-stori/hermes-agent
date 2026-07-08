@@ -1162,3 +1162,50 @@ class TestReasoningEffortDefaults:
         agent.reasoning_config = {"enabled": True, "effort": "medium"}
         kwargs = agent._build_api_kwargs([{"role": "user", "content": "hi"}])
         assert kwargs["extra_body"]["reasoning"]["effort"] == "medium"
+
+
+# ── Non-vision image strip on the profile path ──────────────────────────────
+
+class TestNonVisionImageStrip:
+    """Regression: registered-provider (profile) path must strip image parts
+    for non-vision models. deepseek + image_url previously went through raw
+    and DeepSeek rejected the request with a 400."""
+
+    _IMAGE_MESSAGES = [
+        {"role": "user", "content": [
+            {"type": "text", "text": "看这张截图"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        ]},
+    ]
+
+    def test_profile_provider_strips_images_for_non_vision_model(self, monkeypatch):
+        agent = _make_agent(monkeypatch, "deepseek",
+                            base_url="https://api.deepseek.com",
+                            model="deepseek-v4-flash")
+        monkeypatch.setattr(AIAgent, "_model_supports_vision", lambda self: False)
+        monkeypatch.setattr(
+            AIAgent, "_describe_image_for_anthropic_fallback",
+            lambda self, url, role: "[image description]",
+        )
+        kwargs = agent._build_api_kwargs([dict(m) for m in self._IMAGE_MESSAGES])
+        assert "image_url" not in json.dumps(kwargs["messages"])
+        assert "看这张截图" in json.dumps(kwargs["messages"], ensure_ascii=False)
+
+    def test_profile_provider_keeps_images_for_vision_model(self, monkeypatch):
+        agent = _make_agent(monkeypatch, "deepseek",
+                            base_url="https://api.deepseek.com",
+                            model="deepseek-v4-flash")
+        monkeypatch.setattr(AIAgent, "_model_supports_vision", lambda self: True)
+        kwargs = agent._build_api_kwargs([dict(m) for m in self._IMAGE_MESSAGES])
+        assert "image_url" in json.dumps(kwargs["messages"])
+
+    def test_legacy_path_still_strips_images(self, monkeypatch):
+        agent = _make_agent(monkeypatch, "some-unknown-provider",
+                            base_url="https://example.com/v1")
+        monkeypatch.setattr(AIAgent, "_model_supports_vision", lambda self: False)
+        monkeypatch.setattr(
+            AIAgent, "_describe_image_for_anthropic_fallback",
+            lambda self, url, role: "[image description]",
+        )
+        kwargs = agent._build_api_kwargs([dict(m) for m in self._IMAGE_MESSAGES])
+        assert "image_url" not in json.dumps(kwargs["messages"])
