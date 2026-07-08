@@ -593,6 +593,13 @@ class APIServerAdapter(BasePlatformAdapter):
         self._model_name: str = self._resolve_model_name(
             extra.get("model_name", os.getenv("API_SERVER_MODEL_NAME", "")),
         )
+        # Backend model override for this platform only.  Unlike
+        # ``model_name`` (the advertised /v1/models id), this changes which
+        # model actually runs.  Empty string falls back to the global
+        # config.yaml model.
+        self._backend_model: str = str(
+            extra.get("model", os.getenv("API_SERVER_MODEL", "")) or ""
+        ).strip()
         self._app: Optional["web.Application"] = None
         self._runner: Optional["web.AppRunner"] = None
         self._site: Optional["web.TCPSite"] = None
@@ -804,7 +811,9 @@ class APIServerAdapter(BasePlatformAdapter):
         Create an AIAgent instance using the gateway's runtime config.
 
         Uses _resolve_runtime_agent_kwargs() to pick up model, api_key,
-        base_url, etc. from config.yaml / env vars.  Toolsets are resolved
+        base_url, etc. from config.yaml / env vars.  The model can be
+        overridden per-platform via ``platforms.api_server.extra.model``
+        (or ``API_SERVER_MODEL``).  Toolsets are resolved
         from config.yaml platform_toolsets.api_server (same as all other
         gateway platforms), falling back to the hermes-api-server default.
 
@@ -821,7 +830,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         runtime_kwargs = _resolve_runtime_agent_kwargs()
         reasoning_config = GatewayRunner._load_reasoning_config()
-        model = _resolve_gateway_model()
+        model = self._backend_model or _resolve_gateway_model()
 
         user_config = _load_gateway_config()
         enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
