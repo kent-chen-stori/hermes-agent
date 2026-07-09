@@ -994,6 +994,47 @@ class APIServerAdapter(BasePlatformAdapter):
             },
         })
 
+    async def _handle_feedback(self, request: "web.Request") -> "web.Response":
+        """POST /v1/feedback — persist a thumbs up/down rating from an external client (e.g. Ace).
+
+        Appends the payload as one JSON line to $HERMES_HOME/feedback.jsonl.
+        Clients treat this as fire-and-forget and only check for a 2xx.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON in request body"), status=400)
+        if not isinstance(body, dict):
+            return web.json_response(_openai_error("Request body must be a JSON object"), status=400)
+
+        rating = body.get("rating")
+        if rating not in ("up", "down"):
+            return web.json_response(_openai_error("rating must be 'up' or 'down'"), status=400)
+
+        record = {
+            "question": str(body.get("question", "")),
+            "answer": str(body.get("answer", "")),
+            "rating": rating,
+            "user": str(body.get("user", "")),
+            "timestamp": str(body.get("timestamp", "")),
+        }
+        try:
+            from hermes_cli.config import get_hermes_home
+
+            path = get_hermes_home() / "feedback.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception as exc:
+            logger.error("[%s] failed to persist feedback: %s", self.name, exc)
+            return web.json_response(_openai_error("failed to persist feedback"), status=500)
+
+        return web.json_response({"status": "ok"})
+
     async def _handle_chat_completions(self, request: "web.Request") -> "web.Response":
         """POST /v1/chat/completions — OpenAI Chat Completions format."""
         auth_err = self._check_auth(request)
@@ -3323,6 +3364,7 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_get("/v1/health", self._handle_health)
             self._app.router.add_get("/v1/models", self._handle_models)
             self._app.router.add_get("/v1/capabilities", self._handle_capabilities)
+            self._app.router.add_post("/v1/feedback", self._handle_feedback)
             self._app.router.add_post("/v1/chat/completions", self._handle_chat_completions)
             self._app.router.add_post("/v1/responses", self._handle_responses)
             self._app.router.add_get("/v1/responses/{response_id}", self._handle_get_response)
