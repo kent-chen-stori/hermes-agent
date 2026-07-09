@@ -14298,7 +14298,7 @@ class GatewayRunner:
                     try:
                         _approval_extra = {}
                         if source.platform == Platform.FEISHU:
-                            _fuid_match = re.search(r'--feishu-user-id[=\s]+(\S+)', cmd)
+                            _fuid_match = re.search(r'--feishu-user-id[=\s]+["\']?(ou_[a-zA-Z0-9]+)', cmd)
                             if _fuid_match:
                                 _approval_extra["user_id"] = _fuid_match.group(1)
                             elif getattr(source, "user_id", None):
