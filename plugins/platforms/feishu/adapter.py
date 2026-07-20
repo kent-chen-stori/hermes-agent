@@ -886,7 +886,11 @@ def normalize_feishu_message(
     if normalized_type == "share_chat":
         return _normalize_share_chat_message(payload)
     if normalized_type in {"interactive", "card"}:
-        return _normalize_interactive_message(normalized_type, payload)
+        return _normalize_interactive_message(
+            normalized_type,
+            payload,
+            mentions=list(mentions_map.values()),
+        )
 
     return FeishuNormalizedMessage(raw_type=normalized_type, text_content="")
 
@@ -948,7 +952,12 @@ def _normalize_share_chat_message(payload: Dict[str, Any]) -> FeishuNormalizedMe
     )
 
 
-def _normalize_interactive_message(message_type: str, payload: Dict[str, Any]) -> FeishuNormalizedMessage:
+def _normalize_interactive_message(
+    message_type: str,
+    payload: Dict[str, Any],
+    *,
+    mentions: Optional[List[FeishuMentionRef]] = None,
+) -> FeishuNormalizedMessage:
     card_payload = payload.get("card") if isinstance(payload.get("card"), dict) else payload
     title = _first_non_empty_text(
         _find_header_title(card_payload),
@@ -973,6 +982,7 @@ def _normalize_interactive_message(message_type: str, payload: Dict[str, Any]) -
         text_content=text_content,
         relation_kind="interactive",
         metadata={"title": title, "actions": actions},
+        mentions=mentions or [],
     )
 
 
@@ -3818,12 +3828,28 @@ class FeishuAdapter(BasePlatformAdapter):
         raw_content = getattr(message, "content", "") or ""
         raw_type = getattr(message, "message_type", "") or ""
         message_id = str(getattr(message, "message_id", "") or "")
+        mentions = getattr(message, "mentions", None)
         logger.info("[Feishu] Received raw message type=%s message_id=%s", raw_type, message_id)
+
+        if raw_type == "interactive" and message_id and self._client:
+            try:
+                request = self._build_get_message_request(message_id)
+                response = await asyncio.to_thread(self._client.im.v1.message.get, request)
+                items = getattr(getattr(response, "data", None), "items", None) or []
+                full_message = items[0] if getattr(response, "success", lambda: False)() and items else None
+                body = getattr(full_message, "body", None)
+                full_content = getattr(body, "content", "") or ""
+                if full_content:
+                    raw_content = full_content
+                    raw_type = getattr(full_message, "msg_type", "") or raw_type
+                    mentions = getattr(full_message, "mentions", None) or mentions
+            except Exception:
+                logger.warning("[Feishu] Failed to hydrate interactive message %s; using event content", message_id)
 
         normalized = normalize_feishu_message(
             message_type=raw_type,
             raw_content=raw_content,
-            mentions=getattr(message, "mentions", None),
+            mentions=mentions,
             bot=self._bot_identity(),
         )
         media_urls, media_types = await self._download_feishu_message_resources(

@@ -182,6 +182,72 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
 
         signature = inspect.signature(FeishuWSClient)
         self.assertIn("extra_ua_tags", signature.parameters)
+    @patch.dict(os.environ, {}, clear=True)
+    def test_extract_interactive_message_hydrates_full_card_content(self):
+        from gateway.config import PlatformConfig
+        from plugins.platforms.feishu.adapter import FeishuAdapter
+
+        adapter = FeishuAdapter(PlatformConfig())
+        event_message = SimpleNamespace(
+            message_id="om_alert",
+            message_type="interactive",
+            content=json.dumps(
+                {
+                    "card": {
+                        "header": {"title": {"tag": "plain_text", "content": "Max RT"}},
+                    }
+                }
+            ),
+            mentions=[],
+        )
+        full_card = SimpleNamespace(
+            msg_type="interactive",
+            body=SimpleNamespace(
+                content=json.dumps(
+                    {
+                        "card": {
+                            "header": {"title": {"tag": "plain_text", "content": "Max RT"}},
+                            "elements": [
+                                {"tag": "div", "text": {"tag": "plain_text", "content": "pomelo_auth_max_rt=1685"}},
+                            ],
+                        }
+                    }
+                )
+            ),
+            mentions=[
+                SimpleNamespace(
+                    key="@_user_1",
+                    id=SimpleNamespace(open_id="ou_daryl"),
+                    name="daryl",
+                )
+            ],
+        )
+
+        class _MessageAPI:
+            def get(self, request):
+                self.request = request
+                return SimpleNamespace(success=lambda: True, data=SimpleNamespace(items=[full_card]))
+
+        message_api = _MessageAPI()
+        adapter._client = SimpleNamespace(im=SimpleNamespace(v1=SimpleNamespace(message=message_api)))
+
+        async def _direct(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
+            text, message_type, media_urls, media_types, mentions = asyncio.run(
+                adapter._extract_message_content(event_message)
+            )
+
+        self.assertEqual(message_api.request.message_id, "om_alert")
+        self.assertEqual(text, "Max RT\npomelo_auth_max_rt=1685")
+        self.assertEqual(message_type.value, "text")
+        self.assertEqual(media_urls, [])
+        self.assertEqual(media_types, [])
+        self.assertEqual(
+            [(mention.open_id, mention.name) for mention in mentions],
+            [("ou_daryl", "daryl")],
+        )
 
     @patch.dict(os.environ, {
         "FEISHU_APP_ID": "cli_app",
