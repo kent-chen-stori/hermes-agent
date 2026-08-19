@@ -737,13 +737,23 @@ DANGEROUS_PATTERNS = [
     # anywhere in the args, not just the first token — `perl -e '...'` (code
     # eval, no -i) does not trip because it has no `-...i` flag token.
     (rf'\b(?:perl|ruby)\b.*(?:^|\s)-[^\s]*i\b.*(?:{_HERMES_CONFIG_PATH}|{_HERMES_ENV_PATH})', "in-place edit of Hermes config/env (perl/ruby)"),
-    # Business-critical external system mutations
-    (r'\barchery\b.*\bticket\b.*\bapprove\b', "archery ticket approve (executes SQL against production database)"),
-    (r'\barchery\b.*\bticket\b.*\bexecute\b', "archery ticket execute (executes SQL against production database)"),
-    (r'\bxxljob\b.*\btrigger\b', "xxljob trigger (fires async job in production)"),
-    (r'\bfundcheck\s+rule-new\b', "fundcheck rule-new (creates production fund check rule)"),
-    (r'\bfundcheck\s+rule-update\b', "fundcheck rule-update (modifies production fund check rule)"),
-    (r'\bfundcheck\s+rule-switch-status\b', "fundcheck rule-switch-status (toggles production fund check rule status)"),
+    # Business-critical external system mutations.
+    #
+    # 锚定到 _CMDPOS：只在这些词真的处于命令位置时才拦（行首、命令分隔符之后、
+    # 子 shell 开头、或 sudo/env/exec 包装之后）。原先用 `\b...\b` + `.*`，只要
+    # 命令字符串里**提到**这几个词就命中——而 agent 干完活回群里汇报时，
+    # `lark-cli im +messages-send --markdown "archery ticket approve 已完成"`
+    # 整条命令连正文一起被扫，于是「发一条消息」也要走审批。同理 echo、写文档、
+    # 写文件里引用命令名都会误伤。
+    #
+    # `.*` 一并换成 `[^;&|\n]*`，不让匹配跨过命令分隔符拼出假阳性。
+    # 参考同文件里 shutdown/reboot/rm 那几条硬拦截，用的是同一个 _CMDPOS。
+    (_CMDPOS + r'archery\b[^;&|\n]*\bticket\b[^;&|\n]*\bapprove\b', "archery ticket approve (executes SQL against production database)"),
+    (_CMDPOS + r'archery\b[^;&|\n]*\bticket\b[^;&|\n]*\bexecute\b', "archery ticket execute (executes SQL against production database)"),
+    (_CMDPOS + r'xxljob\b[^;&|\n]*\btrigger\b', "xxljob trigger (fires async job in production)"),
+    (_CMDPOS + r'fundcheck\s+rule-new\b', "fundcheck rule-new (creates production fund check rule)"),
+    (_CMDPOS + r'fundcheck\s+rule-update\b', "fundcheck rule-update (modifies production fund check rule)"),
+    (_CMDPOS + r'fundcheck\s+rule-switch-status\b', "fundcheck rule-switch-status (toggles production fund check rule status)"),
     # Sudo with stdin / askpass / shell / list-privs flags. An LLM-driven
     # agent has no TTY, so sudo invocations that succeed without human
     # interaction are those reading the password from stdin (-S/--stdin)
