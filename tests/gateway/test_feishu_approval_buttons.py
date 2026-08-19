@@ -121,12 +121,11 @@ class TestFeishuExecApproval:
         assert "dangerous deletion" in card["elements"][0]["content"]
 
         # Check buttons
+        # stori: 只保留 Allow / Deny
         actions = card["elements"][1]["actions"]
-        assert len(actions) == 4
+        assert len(actions) == 2
         action_names = [a["value"]["hermes_action"] for a in actions]
-        assert action_names == [
-            "approve_once", "approve_session", "approve_always", "deny"
-        ]
+        assert action_names == ["approve_once", "deny"]
 
     @pytest.mark.asyncio
     async def test_stores_approval_state(self):
@@ -523,6 +522,55 @@ class TestCardActionCallbackResponse:
         card = response.card.data
         assert card["header"]["template"] == "red"
         assert "Denied" in card["header"]["title"]["content"]
+
+    def test_adds_checkmark_reaction_on_approve(self, _patch_callback_card_types):
+        """stori: 点击回执。这条改动在 2026-05 的上游 merge 里被覆盖过一次。"""
+        adapter = _make_adapter()
+        adapter._loop = MagicMock()
+        adapter._loop.is_closed = MagicMock(return_value=False)
+        adapter._allowed_group_users = {"ou_bob"}
+        adapter._approval_state[11] = {
+            "session_key": "sess-11",
+            "message_id": "msg-11",
+            "chat_id": "oc_12345",
+        }
+        data = _make_card_action_data(
+            {"hermes_action": "approve_once", "approval_id": 11},
+            open_id="ou_bob",
+        )
+
+        with patch.object(
+            adapter, "_add_approval_reaction", new_callable=AsyncMock
+        ) as mock_react, patch(
+            "asyncio.run_coroutine_threadsafe", side_effect=_close_submitted_coro
+        ):
+            adapter._on_card_action_trigger(data)
+
+        mock_react.assert_called_once_with("msg-11", "CheckMark")
+
+    def test_adds_crossmark_reaction_on_deny(self, _patch_callback_card_types):
+        adapter = _make_adapter()
+        adapter._loop = MagicMock()
+        adapter._loop.is_closed = MagicMock(return_value=False)
+        adapter._allowed_group_users = {"ou_bob"}
+        adapter._approval_state[12] = {
+            "session_key": "sess-12",
+            "message_id": "msg-12",
+            "chat_id": "oc_12345",
+        }
+        data = _make_card_action_data(
+            {"hermes_action": "deny", "approval_id": 12},
+            open_id="ou_bob",
+        )
+
+        with patch.object(
+            adapter, "_add_approval_reaction", new_callable=AsyncMock
+        ) as mock_react, patch(
+            "asyncio.run_coroutine_threadsafe", side_effect=_close_submitted_coro
+        ):
+            adapter._on_card_action_trigger(data)
+
+        mock_react.assert_called_once_with("msg-12", "CrossMark")
 
     def test_ignores_missing_approval_id(self, _patch_callback_card_types):
         adapter = _make_adapter()

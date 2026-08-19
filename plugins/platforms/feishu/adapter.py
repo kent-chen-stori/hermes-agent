@@ -2043,12 +2043,13 @@ class FeishuAdapter(BasePlatformAdapter):
                 }
 
             mention_prefix = f'<at id="{user_id}"></at>\n' if user_id else ""
-            actions = [_btn("✅ Allow Once", "approve_once", "primary")]
-            if not smart_denied:
-                actions.append(_btn("✅ Session", "approve_session"))
-                if allow_permanent:
-                    actions.append(_btn("✅ Always", "approve_always"))
-            actions.append(_btn("❌ Deny", "deny", "danger"))
+            # stori: 只保留 Allow / Deny 两个按钮。Session / Always 的作用域太大，
+            # 群里点错一次后续危险命令全部放行。allow_permanent 因此不再影响按钮，
+            # 但签名保留 —— gateway/run.py 仍在传。
+            actions = [
+                _btn("✅ Allow", "approve_once", "primary"),
+                _btn("❌ Deny", "deny", "danger"),
+            ]
             scope_note = "\n\n**Smart DENY:** owner override applies to this one operation only." if smart_denied else ""
             card = {
                 "config": {"wide_screen_mode": True},
@@ -2821,6 +2822,18 @@ class FeishuAdapter(BasePlatformAdapter):
             ),
         ):
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
+
+        # stori: 给原卡片消息加 emoji reaction 作为点击回执。卡片本身会被
+        # P2CardActionTriggerResponse 整体替换，reaction 留在消息上更容易回溯。
+        approval_message_id = str((state or {}).get("message_id", "") or "")
+        if approval_message_id:
+            self._submit_on_loop(
+                loop,
+                self._add_approval_reaction(
+                    approval_message_id,
+                    "CrossMark" if choice == "deny" else "CheckMark",
+                ),
+            )
 
         if P2CardActionTriggerResponse is None:
             return None

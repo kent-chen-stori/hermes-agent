@@ -18870,10 +18870,26 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     try:
                         _approval_extra = {}
                         if source.platform == Platform.FEISHU:
+                            # user_id 一个值管两件事：卡片里 <at> 谁，以及之后只有谁
+                            # 点得动按钮（adapter 侧的 required_user 校验）。所以绑错
+                            # 人不是"少了个通知"，是审批彻底点不动，只能等超时。
                             _fuid_match = re.search(r'--feishu-user-id[=\s]+["\']?(ou_[a-zA-Z0-9]+)', cmd)
                             if _fuid_match:
+                                # 命令里显式指定 = 人为意图，照做。这里只有一个裸
+                                # open_id，本地没有 sender_type 可查，分不出人和机器人；
+                                # 要判断得多一次 bot/basic_batch 往返，不值得。
                                 _approval_extra["user_id"] = _fuid_match.group(1)
-                            elif getattr(source, "user_id", None):
+                            elif getattr(source, "user_id", None) and not getattr(source, "is_bot", False):
+                                # 兜底 @ 发起人。但发起人可能是机器人——群里的告警 bot
+                                # 推一条消息就会起 agent turn（feishu.allow_bots=mentions）。
+                                # 机器人不会点按钮，绑上去就是死锁：
+                                #   08-15 Approval 163 / 08-16 Approval 178 都绑到了
+                                #   ou_1503...（线上问题助手），人点了被拒，日志里没有
+                                #   任何 resolved，agent 一直卡到超时。
+                                # is_bot 来自飞书事件原始的 sender.sender_type，见
+                                # plugins/platforms/feishu/adapter.py:447 _is_bot_sender。
+                                # 留空即可，adapter 那边 required_user 为空会短路跳过
+                                # 绑定校验，降级成群白名单/admin 谁都能点。
                                 _approval_extra["user_id"] = source.user_id
                         _approval_fut = safe_schedule_threadsafe(
                             _status_adapter.send_exec_approval(
