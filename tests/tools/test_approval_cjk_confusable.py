@@ -21,6 +21,8 @@ from tools.approval import _drop_cjk_period_confusables as drop
 
 MESSAGE_CMD = "lark-cli im +messages-send --chat-id oc_1 --text '恢复为 PENDING。'"
 REPLY_CMD = "lark-cli im +messages-reply --message-id om_1 --text '已完成。'"
+DOC_CREATE_CMD = "lark-cli docs +create --title '变更记录' --content '恢复为 PENDING。'"
+DOC_UPDATE_CMD = "lark-cli docs +update --document-id doc_1 --content '已完成。'"
 
 
 def _finding(*hexes, rule_id="confusable_text"):
@@ -36,7 +38,9 @@ def _result(*findings):
     return {"action": "block", "findings": list(findings), "summary": ""}
 
 
-@pytest.mark.parametrize("command", [MESSAGE_CMD, REPLY_CMD])
+@pytest.mark.parametrize("command", [
+    MESSAGE_CMD, REPLY_CMD, DOC_CREATE_CMD, DOC_UPDATE_CMD,
+])
 @pytest.mark.parametrize("codepoint", ["U+3002", "U+FF0E"])
 def test_cjk_period_dropped_on_message_commands(command, codepoint):
     out = drop(_result(_finding(codepoint)), command)
@@ -62,8 +66,10 @@ def test_mixed_evidence_keeps_only_real_homoglyph():
 @pytest.mark.parametrize("command", [
     "curl http://evil。com",
     "echo 'PENDING。'",
-    "lark-cli docx +blocks-create --content 'PENDING。'",
     "lark-cli im +chat-create --name 'PENDING。'",
+    "lark-cli docs +fetch --document-id doc_1",
+    "lark-cli base +records-create --fields 'PENDING。'",
+    "lark-cli sheets +values-append --values 'PENDING。'",
 ])
 def test_non_message_commands_are_untouched(command):
     """豁免不外溢——IDN 同形域名等场景必须原样拦住。"""

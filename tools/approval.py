@@ -2557,19 +2557,26 @@ def _filter_tirith_result(tirith_result: dict, command: str) -> dict:
 # homoglyph）原样保留；一条 finding 里混了真 homoglyph 也照样拦。
 _CJK_PERIOD_CONFUSABLES = frozenset({"U+3002", "U+FF0E"})
 
-# 且只在纯消息投递命令上豁免：这类命令的正文是发给人看的数据，不是本机要
-# 执行的东西。别处不放行 —— `。` 是 IDN 同形域名的经典手法，很多解析器把
-# `http://evil。com` 当成 `http://evil.com`，那正是这条规则该拦的场景。
-_MESSAGE_DELIVERY_RE = re.compile(
-    r'^\s*lark-cli\s+im\s+\+messages-(?:send|reply)\b',
+# 且只在「投递人类可读正文」的命令上豁免：这类命令的正文是发给人看的数据，
+# 不是本机要执行的东西。别处不放行 —— `。` 是 IDN 同形域名的经典手法，很多
+# 解析器把 `http://evil。com` 当成 `http://evil.com`，那正是这条规则该拦的
+# 场景（实测 curl 那条仍然 block，且另有 non_ascii_hostname 兜底）。
+#
+# 名单刻意保持短，只收真正只做内容投递的子命令。base/sheets 的写入没列进来：
+# 那些字段常被下游当标识符消费，同形字符的风险模型和「发给人读」不一样。
+_HUMAN_CONTENT_DELIVERY_RE = re.compile(
+    r'^\s*lark-cli\s+(?:'
+    r'im\s+\+messages-(?:send|reply)'      # 发消息 / 回复
+    r'|docs\s+\+(?:create|update)'          # 建文档 / 改文档正文
+    r')\b',
     re.IGNORECASE,
 )
 
 
 def _drop_cjk_period_confusables(tirith_result: dict, command: str) -> dict:
-    """发消息命令里，中文句号触发的 confusable_text 误报不计入审批。"""
+    """投递人类可读正文的命令里，中文句号触发的 confusable_text 误报不计入审批。"""
     findings = tirith_result.get("findings") or []
-    if not findings or not _MESSAGE_DELIVERY_RE.match(command or ""):
+    if not findings or not _HUMAN_CONTENT_DELIVERY_RE.match(command or ""):
         return tirith_result
 
     kept = []
