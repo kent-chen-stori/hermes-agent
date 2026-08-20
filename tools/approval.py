@@ -2548,6 +2548,50 @@ def _filter_tirith_result(tirith_result: dict, command: str) -> dict:
     return {**tirith_result, "findings": filtered}
 
 
+# stori: tirith 的 confusable_text 规则把中文句号判成「像 '.'」。
+# 中文技术汇报天然写成 `恢复为 PENDING。`、`工单 56968。`—— ASCII 术语后面
+# 直接跟句号，实测只要 `。` 紧邻 ASCII 就 block（中间加空格反而不报）。
+# 于是 agent 往飞书群里发一条中文汇报几乎必被拦。
+#
+# 只豁免这两个码位，其余 confusable（Cyrillic U+0430、Greek U+03BF 等真
+# homoglyph）原样保留；一条 finding 里混了真 homoglyph 也照样拦。
+_CJK_PERIOD_CONFUSABLES = frozenset({"U+3002", "U+FF0E"})
+
+# 且只在纯消息投递命令上豁免：这类命令的正文是发给人看的数据，不是本机要
+# 执行的东西。别处不放行 —— `。` 是 IDN 同形域名的经典手法，很多解析器把
+# `http://evil。com` 当成 `http://evil.com`，那正是这条规则该拦的场景。
+_MESSAGE_DELIVERY_RE = re.compile(
+    r'^\s*lark-cli\s+im\s+\+messages-(?:send|reply)\b',
+    re.IGNORECASE,
+)
+
+
+def _drop_cjk_period_confusables(tirith_result: dict, command: str) -> dict:
+    """发消息命令里，中文句号触发的 confusable_text 误报不计入审批。"""
+    findings = tirith_result.get("findings") or []
+    if not findings or not _MESSAGE_DELIVERY_RE.match(command or ""):
+        return tirith_result
+
+    kept = []
+    for finding in findings:
+        if finding.get("rule_id") != "confusable_text":
+            kept.append(finding)
+            continue
+        evidence = finding.get("evidence") or []
+        if not evidence:
+            # 没有 evidence 就无从判断是不是句号，保守保留。
+            kept.append(finding)
+            continue
+        remaining = [e for e in evidence
+                     if e.get("hex") not in _CJK_PERIOD_CONFUSABLES]
+        if remaining:
+            kept.append({**finding, "evidence": remaining})
+
+    if not kept:
+        return {"action": "allow", "findings": [], "summary": ""}
+    return {**tirith_result, "findings": kept}
+
+
 def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
                             *, surface: str = "gateway") -> dict:
     """Enqueue *approval_data*, notify the user, and block the calling agent
@@ -2762,6 +2806,8 @@ def check_all_command_guards(command: str, env_type: str,
                 try:
                     from tools.tirith_security import check_command_security
                     _cron_tirith = check_command_security(command)
+                    # stori: 同主流程，中文句号误报不该让 cron 发不出消息。
+                    _cron_tirith = _drop_cjk_period_confusables(_cron_tirith, command)
                     if _cron_tirith.get("action") in ("block", "warn"):
                         _cron_desc = _format_tirith_description(_cron_tirith)
                         return {
@@ -2850,6 +2896,7 @@ def check_all_command_guards(command: str, env_type: str,
 
     if tirith_result["action"] in ("block", "warn"):
         tirith_result = _filter_tirith_result(tirith_result, command)
+        tirith_result = _drop_cjk_period_confusables(tirith_result, command)
 
     # Dangerous command check (detection only, no approval)
     is_dangerous, pattern_key, description = detect_dangerous_command(command)
