@@ -12,6 +12,10 @@ import os
 logger = logging.getLogger(__name__)
 
 DEFAULT_CODEX_MODELS: List[str] = [
+    # GPT-6 Codex tiers (the -pro slugs are not routable on Codex OAuth).
+    "gpt-6-sol",
+    "gpt-6-terra",
+    "gpt-6-luna",
     # GPT-5.6 series (Sol/Terra/Luna + -pro high-effort modes) — GA 2026-07-09
     # (previewed 2026-06-26).
     "gpt-5.6-sol",
@@ -52,6 +56,9 @@ DEFAULT_CODEX_MODELS: List[str] = [
 ]
 
 _FORWARD_COMPAT_TEMPLATE_MODELS: List[tuple[str, tuple[str, ...]]] = [
+    ("gpt-6-sol", ("gpt-5.6-sol", "gpt-5.5")),
+    ("gpt-6-terra", ("gpt-5.6-terra", "gpt-5.5")),
+    ("gpt-6-luna", ("gpt-5.6-luna", "gpt-5.5")),
     ("gpt-5.6-sol", ("gpt-5.5", "gpt-5.4")),
     ("gpt-5.6-sol-pro", ("gpt-5.5", "gpt-5.4")),
     ("gpt-5.6-terra", ("gpt-5.5", "gpt-5.4")),
@@ -97,15 +104,12 @@ def _fetch_models_from_api(access_token: str) -> List[str]:
     """Fetch available models from the Codex API. Returns visible models sorted by priority."""
     try:
         import httpx
-        resp = httpx.get(
-            "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=10,
+        from agent.codex_catalog import fetch_codex_catalog_entries
+        entries = fetch_codex_catalog_entries(
+            lambda url: httpx.get(
+                url, headers={"Authorization": f"Bearer {access_token}"}, timeout=10,
+            )
         )
-        if resp.status_code != 200:
-            return []
-        data = resp.json()
-        entries = data.get("models", []) if isinstance(data, dict) else []
     except Exception as exc:
         logger.debug("Failed to fetch Codex models from API: %s", exc)
         return []

@@ -232,6 +232,9 @@ DEFAULT_CONTEXT_LENGTHS = {
     # GPT-5.6 series (Sol/Terra/Luna, GA 2026-07-09) — 1.05M on the direct
     # OpenAI API (same as gpt-5.5). Codex OAuth caps these at 272K.
     # (Lookups length-sort keys at match time, so dict order is cosmetic.)
+    "gpt-6-sol": 1050000,
+    "gpt-6-terra": 1050000,
+    "gpt-6-luna": 1050000,
     "gpt-5.6-luna": 1050000,
     "gpt-5.6-terra": 1050000,
     "gpt-5.6-sol": 1050000,
@@ -1861,6 +1864,9 @@ _CODEX_OAUTH_CONTEXT_FALLBACK: Dict[str, int] = {
     "gpt-5.3-codex-spark": 128_000,
     "gpt-5.2-codex": 272_000,
     "gpt-5.4-mini": 272_000,
+    "gpt-6-sol": 272_000,
+    "gpt-6-terra": 272_000,
+    "gpt-6-luna": 272_000,
     "gpt-5.6-sol": 272_000,
     "gpt-5.6-terra": 272_000,
     "gpt-5.6-luna": 272_000,
@@ -1894,24 +1900,17 @@ def _fetch_codex_oauth_context_lengths(access_token: str) -> Dict[str, int]:
         return _codex_oauth_context_cache
 
     try:
-        resp = requests.get(
-            "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=(5, 10),
-            verify=_resolve_requests_verify(),
-        )
-        if resp.status_code != 200:
-            logger.debug(
-                "Codex /models probe returned HTTP %s; falling back to hardcoded defaults",
-                resp.status_code,
+        from agent.codex_catalog import fetch_codex_catalog_entries
+        entries = fetch_codex_catalog_entries(
+            lambda url: requests.get(
+                url, headers={"Authorization": f"Bearer {access_token}"},
+                timeout=(5, 10), verify=_resolve_requests_verify(),
             )
-            return {}
-        data = resp.json()
+        )
     except Exception as exc:
         logger.debug("Codex /models probe failed: %s", exc)
         return {}
 
-    entries = data.get("models", []) if isinstance(data, dict) else []
     result: Dict[str, int] = {}
     for item in entries:
         if not isinstance(item, dict):

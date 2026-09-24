@@ -164,7 +164,9 @@ class ResponsesApiTransport(ProviderTransport):
                 reasoning_effort = reasoning_config["effort"]
 
         _effort_clamp = {"minimal": "low"}
-        if "gpt-5.6" in (model or "").lower():
+        if "gpt-5.6" in (model or "").lower() or (model or "").lower().rsplit("/", 1)[-1].startswith(
+            ("gpt-6-sol", "gpt-6-terra", "gpt-6-luna")
+        ):
             # Ultra is the Codex product tier; the Responses API wire value is max.
             _effort_clamp["ultra"] = "max"
         if params.get("is_xai_responses", False):

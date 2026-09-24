@@ -79,6 +79,12 @@ class PricingEntry:
     output_cost_per_million: Optional[Decimal] = None
     cache_read_cost_per_million: Optional[Decimal] = None
     cache_write_cost_per_million: Optional[Decimal] = None
+    # Above this prompt size the higher rates apply to the *whole request*.
+    tier_threshold_tokens: Optional[int] = None
+    input_cost_per_million_above: Optional[Decimal] = None
+    output_cost_per_million_above: Optional[Decimal] = None
+    cache_read_cost_per_million_above: Optional[Decimal] = None
+    cache_write_cost_per_million_above: Optional[Decimal] = None
     request_cost: Optional[Decimal] = None
     source: CostSource = "none"
     source_url: Optional[str] = None
@@ -611,14 +617,29 @@ _OFFICIAL_DOCS_PRICING: Dict[tuple[str, str], PricingEntry] = {
     ),
 }
 
-# GPT-5.6 "-pro" high-effort variants bill at the same per-token rates as
-# their base tiers (more tokens per task, not a higher rate). Alias them
-# onto the base entries so the snapshot stays single-source.
-for _base_56 in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
-    _OFFICIAL_DOCS_PRICING[("openai", f"{_base_56}-pro")] = _OFFICIAL_DOCS_PRICING[
-        ("openai", _base_56)
-    ]
-del _base_56
+# OpenAI's published GPT-6 Sol/Luna pricing uses a whole-request tier above
+# 272K prompt tokens. Terra has no published pricing; do not guess its rates.
+for _slug, _rates in (
+    ("gpt-6-sol", ("2.00", "10.00", "0.20", "2.50", "4.00", "15.00", "0.40", "5.00")),
+    ("gpt-6-luna", ("0.10", "0.50", "0.01", "0.125", "0.20", "0.75", "0.02", "0.25")),
+):
+    _OFFICIAL_DOCS_PRICING[("openai", _slug)] = PricingEntry(
+        input_cost_per_million=Decimal(_rates[0]),
+        output_cost_per_million=Decimal(_rates[1]),
+        cache_read_cost_per_million=Decimal(_rates[2]),
+        cache_write_cost_per_million=Decimal(_rates[3]),
+        tier_threshold_tokens=272_000,
+        input_cost_per_million_above=Decimal(_rates[4]),
+        output_cost_per_million_above=Decimal(_rates[5]),
+        cache_read_cost_per_million_above=Decimal(_rates[6]),
+        cache_write_cost_per_million_above=Decimal(_rates[7]),
+        source="official_docs_snapshot",
+        source_url=f"https://developers.openai.com/api/docs/models/{_slug}",
+        pricing_version="openai-gpt-6-tiers-2026-09",
+    )
+for _base in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-sol", "gpt-6-luna"):
+    _OFFICIAL_DOCS_PRICING[("openai", f"{_base}-pro")] = _OFFICIAL_DOCS_PRICING[("openai", _base)]
+del _base, _slug, _rates
 
 
 def _to_decimal(value: Any) -> Optional[Decimal]:
@@ -955,14 +976,22 @@ def estimate_usage_cost(
                 notes=("cache-write pricing unavailable for route",),
             )
 
-    if entry.input_cost_per_million is not None:
-        amount += Decimal(usage.input_tokens) * entry.input_cost_per_million / _ONE_MILLION
-    if entry.output_cost_per_million is not None:
-        amount += Decimal(usage.output_tokens) * entry.output_cost_per_million / _ONE_MILLION
-    if entry.cache_read_cost_per_million is not None:
-        amount += Decimal(usage.cache_read_tokens) * entry.cache_read_cost_per_million / _ONE_MILLION
-    if entry.cache_write_cost_per_million is not None:
-        amount += Decimal(usage.cache_write_tokens) * entry.cache_write_cost_per_million / _ONE_MILLION
+    above_tier = (entry.tier_threshold_tokens is not None
+                  and usage.prompt_tokens > entry.tier_threshold_tokens)
+    def rate(base: Optional[Decimal], high: Optional[Decimal]) -> Optional[Decimal]:
+        return high if above_tier else base
+
+    for tokens, base, high in (
+        (usage.input_tokens, entry.input_cost_per_million, entry.input_cost_per_million_above),
+        (usage.output_tokens, entry.output_cost_per_million, entry.output_cost_per_million_above),
+        (usage.cache_read_tokens, entry.cache_read_cost_per_million, entry.cache_read_cost_per_million_above),
+        (usage.cache_write_tokens, entry.cache_write_cost_per_million, entry.cache_write_cost_per_million_above),
+    ):
+        selected = rate(base, high)
+        if tokens and selected is None:
+            return CostResult(amount_usd=None, status="unknown", source=entry.source, label="n/a")
+        if selected is not None:
+            amount += Decimal(tokens) * selected / _ONE_MILLION
     if entry.request_cost is not None and usage.request_count:
         amount += Decimal(usage.request_count) * entry.request_cost
 

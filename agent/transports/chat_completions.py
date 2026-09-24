@@ -23,7 +23,9 @@ def _reasoning_config_for_model(model: str, reasoning_config: dict | None) -> di
     if not isinstance(reasoning_config, dict):
         return reasoning_config
     if (
-        "gpt-5.6" in (model or "").lower()
+        ("gpt-5.6" in (model or "").lower() or (model or "").lower().rsplit("/", 1)[-1].startswith(
+            ("gpt-6-sol", "gpt-6-terra", "gpt-6-luna")
+        ))
         and str(reasoning_config.get("effort") or "").strip().lower() == "ultra"
     ):
         normalized = dict(reasoning_config)
