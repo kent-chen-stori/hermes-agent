@@ -5,10 +5,27 @@ Provides a curses multi-select with keyboard navigation, plus a
 text-based numbered fallback for terminals without curses support.
 """
 import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Set
 
 from hermes_cli.colors import Colors, color
+
+
+# Some macOS ncurses builds segfault inside wgetch -> resizeterm over SSH
+# when the PTY changes size. Let `hermes model --numbered` bypass native curses
+# for the whole model-selection flow; ContextVar keeps concurrent sessions safe.
+_numbered_menus: ContextVar[bool] = ContextVar("hermes_numbered_menus", default=False)
+
+
+@contextmanager
+def numbered_menus():
+    token = _numbered_menus.set(True)
+    try:
+        yield
+    finally:
+        _numbered_menus.reset(token)
 
 
 def _query_matches(label: str, query: str) -> bool:
@@ -404,6 +421,8 @@ def _run_curses_menu(
     # each menu (the numbered fallback is only for curses errors on a real TTY).
     if not sys.stdin.isatty():
         return cancel_value
+    if _numbered_menus.get():
+        return fallback()
 
     use_search = searchable and search_labels is not None and len(search_labels) == item_count
 

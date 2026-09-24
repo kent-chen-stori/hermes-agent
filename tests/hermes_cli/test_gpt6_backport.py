@@ -32,6 +32,18 @@ def test_catalog_routes_and_alias_sort():
     assert ordered[0] == "gpt-6-sol"
 
 
+def test_codex_does_not_invent_public_api_pro_variants(tmp_path):
+    import json
+    from hermes_cli.codex_models import DEFAULT_CODEX_MODELS, _read_cache_models
+
+    assert not any(mid.endswith("-pro") for mid in DEFAULT_CODEX_MODELS)
+    assert not any(mid.endswith("-pro") for mid in _add_forward_compat_models(["gpt-5.5"]))
+    (tmp_path / "models_cache.json").write_text(json.dumps({"models": [
+        {"slug": "gpt-5.6-sol-pro"}, {"slug": "gpt-5.6-sol"},
+    ]}))
+    assert _read_cache_models(tmp_path) == ["gpt-5.6-sol"]
+
+
 def test_catalog_fetch_newest_and_compat_fallback(monkeypatch):
     urls = []
 

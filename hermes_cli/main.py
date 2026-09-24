@@ -2768,7 +2768,12 @@ def cmd_model(args):
             print("  Cleared model picker cache.")
         except Exception:
             pass
-    select_provider_and_model(args=args)
+    if getattr(args, "numbered", False):
+        from hermes_cli.curses_ui import numbered_menus
+        with numbered_menus():
+            select_provider_and_model(args=args)
+    else:
+        select_provider_and_model(args=args)
 
 
 def _is_profile_api_key_provider(provider_id: str) -> bool:

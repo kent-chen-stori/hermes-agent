@@ -20,6 +20,10 @@ def build_model_parser(subparsers, *, cmd_model: Callable) -> None:
         description="Interactively select your inference provider and default model",
     )
     model_parser.add_argument(
+        "--numbered", action="store_true",
+        help="Use numbered text menus instead of curses (for SSH terminals with resize crashes).",
+    )
+    model_parser.add_argument(
         "--refresh",
         action="store_true",
         help="Wipe the model picker disk cache and re-fetch every provider's live /v1/models list.",

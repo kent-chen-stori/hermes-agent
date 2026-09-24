@@ -16,14 +16,10 @@ DEFAULT_CODEX_MODELS: List[str] = [
     "gpt-6-sol",
     "gpt-6-terra",
     "gpt-6-luna",
-    # GPT-5.6 series (Sol/Terra/Luna + -pro high-effort modes) — GA 2026-07-09
-    # (previewed 2026-06-26).
+    # GPT-5.6 tier bases; -pro variants are direct-API models, not Codex OAuth.
     "gpt-5.6-sol",
-    "gpt-5.6-sol-pro",
     "gpt-5.6-terra",
-    "gpt-5.6-terra-pro",
     "gpt-5.6-luna",
-    "gpt-5.6-luna-pro",
     "gpt-5.5",
     "gpt-5.4-mini",
     "gpt-5.4",
@@ -55,16 +51,16 @@ DEFAULT_CODEX_MODELS: List[str] = [
     # live discovery will pick them up automatically via _fetch_models_from_api.
 ]
 
+# Old local Codex CLI caches can contain public-API-only 5.6 -pro variants.
+_CODEX_UNROUTABLE_PRO = {f"gpt-5.6-{tier}-pro" for tier in ("sol", "terra", "luna")}
+
 _FORWARD_COMPAT_TEMPLATE_MODELS: List[tuple[str, tuple[str, ...]]] = [
     ("gpt-6-sol", ("gpt-5.6-sol", "gpt-5.5")),
     ("gpt-6-terra", ("gpt-5.6-terra", "gpt-5.5")),
     ("gpt-6-luna", ("gpt-5.6-luna", "gpt-5.5")),
     ("gpt-5.6-sol", ("gpt-5.5", "gpt-5.4")),
-    ("gpt-5.6-sol-pro", ("gpt-5.5", "gpt-5.4")),
     ("gpt-5.6-terra", ("gpt-5.5", "gpt-5.4")),
-    ("gpt-5.6-terra-pro", ("gpt-5.5", "gpt-5.4")),
     ("gpt-5.6-luna", ("gpt-5.5", "gpt-5.4")),
-    ("gpt-5.6-luna-pro", ("gpt-5.5", "gpt-5.4")),
     ("gpt-5.5", ("gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex")),
     ("gpt-5.4-mini", ("gpt-5.3-codex",)),
     ("gpt-5.4", ("gpt-5.3-codex",)),
@@ -174,6 +170,8 @@ def _read_cache_models(codex_home: Path) -> List[str]:
             if not isinstance(slug, str) or not slug.strip():
                 continue
             slug = slug.strip()
+            if slug in _CODEX_UNROUTABLE_PRO:
+                continue
             # Do not filter on ``supported_in_api`` here.  It describes the
             # public OpenAI API, while Hermes openai-codex talks to the same
             # OAuth-backed Codex backend as Codex CLI.
